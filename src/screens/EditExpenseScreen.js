@@ -10,14 +10,8 @@ import {
   SafeAreaView,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { db, auth } from '../firebaseConfig';
-import {
-  collection,
-  addDoc,
-  serverTimestamp,
-  doc,
-  getDoc,
-} from 'firebase/firestore';
+import { db } from '../firebaseConfig';
+import { doc, updateDoc } from 'firebase/firestore';
 
 const CATEGORIES = [
   { id: 'food', label: 'Їжа', icon: '🛒', color: '#F59E0B' },
@@ -36,15 +30,23 @@ function getTodayDate() {
   return `${day}.${month}.${year}`;
 }
 
-export default function AddExpense({ navigation }) {
-  const [title, setTitle] = useState('');
-  const [amount, setAmount] = useState('');
-  const [type, setType] = useState('expense');
-  const [category, setCategory] = useState('other');
-  const [note, setNote] = useState('');
-  const [customDate, setCustomDate] = useState(getTodayDate());
+export default function EditExpenseScreen({ route, navigation }) {
+  const { transaction } = route.params;
 
-  const handleSave = async () => {
+  const [title, setTitle] = useState(transaction.title || '');
+  const [amount, setAmount] = useState(String(transaction.amount || ''));
+  const [type, setType] = useState(transaction.type || 'expense');
+  const [category, setCategory] = useState(
+    transaction.type === 'expense'
+      ? transaction.category || 'other'
+      : 'income'
+  );
+  const [note, setNote] = useState(transaction.note || '');
+  const [customDate, setCustomDate] = useState(
+    transaction.customDate || getTodayDate()
+  );
+
+  const handleUpdate = async () => {
     if (!title.trim() || !amount.trim()) {
       Alert.alert('Помилка', 'Заповніть назву та суму');
       return;
@@ -58,45 +60,18 @@ export default function AddExpense({ navigation }) {
     }
 
     try {
-      const currentUser = auth.currentUser;
-
-      if (!currentUser) {
-        Alert.alert('Помилка', 'Користувач не авторизований');
-        return;
-      }
-
-      const userRef = doc(db, 'users', currentUser.uid);
-      const userSnap = await getDoc(userRef);
-
-      if (!userSnap.exists()) {
-        Alert.alert('Помилка', 'Не знайдено дані користувача');
-        return;
-      }
-
-      const userData = userSnap.data();
-      const activeBudgetId = userData.activeBudgetId;
-
-      if (!activeBudgetId) {
-        Alert.alert('Помилка', 'Не знайдено активний бюджет');
-        return;
-      }
-
-      await addDoc(collection(db, 'transactions'), {
-        budgetId: activeBudgetId,
-        createdBy: currentUser.uid,
-        createdByEmail: currentUser.email || '',
+      await updateDoc(doc(db, 'transactions', transaction.id), {
         title: title.trim(),
         amount: numericAmount,
         type,
         category: type === 'expense' ? category : 'income',
         note: note.trim(),
         customDate: customDate.trim(),
-        createdAt: serverTimestamp(),
       });
 
       navigation.goBack();
     } catch (e) {
-      Alert.alert('Помилка', 'Не вдалося зберегти: ' + e.message);
+      Alert.alert('Помилка', 'Не вдалося оновити запис: ' + e.message);
     }
   };
 
@@ -108,9 +83,9 @@ export default function AddExpense({ navigation }) {
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.header}>
-          <Text style={styles.headerTitle}>Нова операція</Text>
+          <Text style={styles.headerTitle}>Редагувати операцію</Text>
           <Text style={styles.headerSubtitle}>
-            Додай дохід або витрату до свого бюджету
+            Зміни дані та збережи оновлений запис
           </Text>
         </View>
 
@@ -239,7 +214,7 @@ export default function AddExpense({ navigation }) {
           )}
 
           <TouchableOpacity
-            onPress={handleSave}
+            onPress={handleUpdate}
             activeOpacity={0.85}
             style={styles.saveButtonWrap}
           >
@@ -249,7 +224,7 @@ export default function AddExpense({ navigation }) {
               end={{ x: 1, y: 0 }}
               style={styles.saveButton}
             >
-              <Text style={styles.saveButtonText}>Зберегти</Text>
+              <Text style={styles.saveButtonText}>Оновити</Text>
             </LinearGradient>
           </TouchableOpacity>
         </View>
