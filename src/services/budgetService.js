@@ -103,6 +103,7 @@ export async function createSharedBudget(user, budgetName = 'Наш бюджет
   });
 
   const userRef = doc(db, 'users', user.uid);
+
   await updateDoc(userRef, {
     activeBudgetId: budgetRef.id,
   });
@@ -136,6 +137,7 @@ export async function joinSharedBudgetByCode(user, inviteCodeRaw) {
 
   if (budgetData.members?.includes(user.uid)) {
     const userRef = doc(db, 'users', user.uid);
+
     await updateDoc(userRef, {
       activeBudgetId: budgetDoc.id,
     });
@@ -152,6 +154,7 @@ export async function joinSharedBudgetByCode(user, inviteCodeRaw) {
   });
 
   const userRef = doc(db, 'users', user.uid);
+
   await updateDoc(userRef, {
     activeBudgetId: budgetDoc.id,
   });
@@ -160,4 +163,26 @@ export async function joinSharedBudgetByCode(user, inviteCodeRaw) {
     id: budgetDoc.id,
     ...budgetData,
   };
+}
+
+export async function getUserBudgets(userId) {
+  const q = query(
+    collection(db, 'budgets'),
+    where('members', 'array-contains', userId)
+  );
+
+  const snap = await getDocs(q);
+
+  return snap.docs.map((docItem) => ({
+    id: docItem.id,
+    ...docItem.data(),
+  }));
+}
+
+export async function switchActiveBudget(userId, budgetId) {
+  const userRef = doc(db, 'users', userId);
+
+  await updateDoc(userRef, {
+    activeBudgetId: budgetId,
+  });
 }

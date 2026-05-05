@@ -16,25 +16,34 @@ import {
   createSharedBudget,
   getActiveBudgetData,
   joinSharedBudgetByCode,
+  getUserBudgets,
+  switchActiveBudget,
 } from '../services/budgetService';
 
 export default function ProfileScreen() {
   const user = auth.currentUser;
 
   const [budgetData, setBudgetData] = useState(null);
+  const [userBudgets, setUserBudgets] = useState([]);
   const [loadingBudget, setLoadingBudget] = useState(true);
   const [inviteCodeInput, setInviteCodeInput] = useState('');
   const [creatingShared, setCreatingShared] = useState(false);
   const [joiningShared, setJoiningShared] = useState(false);
+  const [switching, setSwitching] = useState(false);
 
   const firstLetter = user?.email ? user.email[0].toUpperCase() : 'U';
 
   const loadBudget = async () => {
     try {
       if (!user) return;
+
       setLoadingBudget(true);
+
       const budget = await getActiveBudgetData(user.uid);
+      const budgets = await getUserBudgets(user.uid);
+
       setBudgetData(budget);
+      setUserBudgets(budgets);
     } catch (error) {
       Alert.alert('Помилка', 'Не вдалося завантажити бюджет');
     } finally {
@@ -63,7 +72,9 @@ export default function ProfileScreen() {
       if (!user) return;
 
       setCreatingShared(true);
+
       const result = await createSharedBudget(user, 'Наш бюджет');
+
       await loadBudget();
 
       Alert.alert(
@@ -82,7 +93,9 @@ export default function ProfileScreen() {
       if (!user) return;
 
       setJoiningShared(true);
+
       await joinSharedBudgetByCode(user, inviteCodeInput);
+
       setInviteCodeInput('');
       await loadBudget();
 
@@ -91,6 +104,25 @@ export default function ProfileScreen() {
       Alert.alert('Помилка', error.message || 'Не вдалося приєднатися');
     } finally {
       setJoiningShared(false);
+    }
+  };
+
+  const handleSwitchBudget = async (budgetId) => {
+    try {
+      if (!user) return;
+
+      if (budgetData?.id === budgetId) return;
+
+      setSwitching(true);
+
+      await switchActiveBudget(user.uid, budgetId);
+      await loadBudget();
+
+      Alert.alert('Готово', 'Активний бюджет змінено');
+    } catch (error) {
+      Alert.alert('Помилка', 'Не вдалося переключити бюджет');
+    } finally {
+      setSwitching(false);
     }
   };
 
@@ -104,7 +136,7 @@ export default function ProfileScreen() {
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Профіль</Text>
           <Text style={styles.headerSubtitle}>
-            Керуй своїм акаунтом і налаштуваннями
+            Керуй своїм акаунтом, бюджетами і налаштуваннями
           </Text>
         </View>
 
@@ -134,7 +166,10 @@ export default function ProfileScreen() {
               <ActivityIndicator color="#7C3AED" />
             ) : budgetData ? (
               <>
-                <Text style={styles.budgetName}>{budgetData.name || 'Без назви'}</Text>
+                <Text style={styles.budgetName}>
+                  {budgetData.name || 'Без назви'}
+                </Text>
+
                 <Text style={styles.budgetMeta}>
                   Тип: {budgetData.type === 'shared' ? 'Спільний' : 'Особистий'}
                 </Text>
@@ -144,17 +179,80 @@ export default function ProfileScreen() {
                     Код запрошення: {budgetData.inviteCode}
                   </Text>
                 ) : (
-                  <Text style={styles.budgetMeta}>Код запрошення відсутній</Text>
+                  <Text style={styles.budgetMeta}>
+                    Код запрошення відсутній
+                  </Text>
                 )}
 
                 <Text style={styles.budgetMeta}>
                   Учасників: {budgetData.members?.length || 0}
                 </Text>
+
+                {budgetData.memberEmails?.length > 0 && (
+                  <View style={styles.membersBox}>
+                    <Text style={styles.membersTitle}>Учасники:</Text>
+
+                    {budgetData.memberEmails.map((email, index) => (
+                      <Text key={index} style={styles.memberEmail}>
+                        • {email}
+                      </Text>
+                    ))}
+                  </View>
+                )}
               </>
             ) : (
-              <Text style={styles.budgetMeta}>Не вдалося завантажити бюджет</Text>
+              <Text style={styles.budgetMeta}>
+                Не вдалося завантажити бюджет
+              </Text>
             )}
           </View>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Мої бюджети</Text>
+
+          {loadingBudget ? (
+            <ActivityIndicator color="#7C3AED" />
+          ) : userBudgets.length === 0 ? (
+            <View style={styles.emptyBudgetBox}>
+              <Text style={styles.emptyBudgetText}>
+                Поки що немає доступних бюджетів
+              </Text>
+            </View>
+          ) : (
+            userBudgets.map((budget) => {
+              const isActive = budgetData?.id === budget.id;
+
+              return (
+                <TouchableOpacity
+                  key={budget.id}
+                  style={[
+                    styles.budgetItem,
+                    isActive && styles.budgetItemActive,
+                  ]}
+                  onPress={() => handleSwitchBudget(budget.id)}
+                  disabled={switching || isActive}
+                  activeOpacity={0.85}
+                >
+                  <View style={styles.budgetItemLeft}>
+                    <Text style={styles.budgetItemName}>
+                      {budget.name || 'Без назви'}
+                    </Text>
+
+                    <Text style={styles.budgetItemMeta}>
+                      {budget.type === 'shared' ? 'Спільний' : 'Особистий'}
+                    </Text>
+                  </View>
+
+                  {isActive ? (
+                    <Text style={styles.activeLabel}>Активний</Text>
+                  ) : (
+                    <Text style={styles.switchLabel}>Перейти</Text>
+                  )}
+                </TouchableOpacity>
+              );
+            })
+          )}
         </View>
 
         <View style={styles.section}>
@@ -164,6 +262,7 @@ export default function ProfileScreen() {
             style={styles.actionButton}
             onPress={handleCreateSharedBudget}
             disabled={creatingShared}
+            activeOpacity={0.85}
           >
             <Text style={styles.actionButtonText}>
               {creatingShared ? 'Створення...' : 'Створити спільний бюджет'}
@@ -183,6 +282,7 @@ export default function ProfileScreen() {
             style={styles.joinButton}
             onPress={handleJoinSharedBudget}
             disabled={joiningShared}
+            activeOpacity={0.85}
           >
             <Text style={styles.joinButtonText}>
               {joiningShared ? 'Підключення...' : 'Приєднатися по коду'}
@@ -362,6 +462,86 @@ const styles = StyleSheet.create({
     color: '#9CA3AF',
     fontSize: 13,
     marginBottom: 6,
+  },
+
+  membersBox: {
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#262B36',
+  },
+
+  membersTitle: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
+    marginBottom: 6,
+  },
+
+  memberEmail: {
+    color: '#A78BFA',
+    fontSize: 12,
+    marginBottom: 4,
+  },
+
+  budgetItem: {
+    backgroundColor: '#1A1D24',
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#262B36',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+
+  budgetItemActive: {
+    borderColor: '#7C3AED',
+    backgroundColor: '#2A1F4A',
+  },
+
+  budgetItemLeft: {
+    flex: 1,
+    marginRight: 10,
+  },
+
+  budgetItemName: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+
+  budgetItemMeta: {
+    color: '#9CA3AF',
+    fontSize: 12,
+    marginTop: 3,
+  },
+
+  activeLabel: {
+    color: '#A78BFA',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+
+  switchLabel: {
+    color: '#93C5FD',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+
+  emptyBudgetBox: {
+    backgroundColor: '#1A1D24',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#262B36',
+  },
+
+  emptyBudgetText: {
+    color: '#9CA3AF',
+    fontSize: 13,
+    textAlign: 'center',
   },
 
   actionButton: {

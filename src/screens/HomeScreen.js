@@ -12,6 +12,7 @@ import {
   TextInput,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useFocusEffect } from '@react-navigation/native';
 import { db, auth } from '../firebaseConfig';
 import {
   collection,
@@ -88,83 +89,107 @@ export default function HomeScreen({ navigation }) {
   });
   const [loading, setLoading] = useState(true);
   const [activeBudgetId, setActiveBudgetId] = useState(null);
+  const [activeBudgetName, setActiveBudgetName] = useState('');
 
-  useEffect(() => {
-    let unsubscribeTransactions = null;
+  useFocusEffect(
+    React.useCallback(() => {
+      let unsubscribeTransactions = null;
 
-    const loadBudgetAndSubscribe = async () => {
-      try {
-        const currentUser = auth.currentUser;
+      const loadBudgetAndSubscribe = async () => {
+        try {
+          const currentUser = auth.currentUser;
 
-        if (!currentUser) {
-          setLoading(false);
-          return;
-        }
-
-        const userRef = doc(db, 'users', currentUser.uid);
-        const userSnap = await getDoc(userRef);
-
-        if (!userSnap.exists()) {
-          setLoading(false);
-          return;
-        }
-
-        const userData = userSnap.data();
-        const budgetId = userData.activeBudgetId;
-
-        if (!budgetId) {
-          setLoading(false);
-          return;
-        }
-
-        setActiveBudgetId(budgetId);
-
-        const q = query(
-          collection(db, 'transactions'),
-          where('budgetId', '==', budgetId),
-          orderBy('createdAt', 'desc')
-        );
-
-        unsubscribeTransactions = onSnapshot(
-          q,
-          (snapshot) => {
-            let inc = 0;
-            let exp = 0;
-
-            const list = snapshot.docs.map((docItem) => {
-              const data = docItem.data();
-              data.type === 'income'
-                ? (inc += Number(data.amount) || 0)
-                : (exp += Number(data.amount) || 0);
-
-              return { id: docItem.id, ...data };
-            });
-
-            setTransactions(list);
-            setTotals({
-              balance: inc - exp,
-              income: inc,
-              expense: exp,
-            });
+          if (!currentUser) {
             setLoading(false);
-          },
-          (error) => {
-            console.log('Помилка завантаження транзакцій:', error);
-            setLoading(false);
+            return;
           }
-        );
-      } catch (error) {
-        console.log('Помилка завантаження бюджету:', error);
-        setLoading(false);
-      }
-    };
 
-    loadBudgetAndSubscribe();
+          setLoading(true);
 
-    return () => {
-      if (unsubscribeTransactions) unsubscribeTransactions();
-    };
-  }, []);
+          const userRef = doc(db, 'users', currentUser.uid);
+          const userSnap = await getDoc(userRef);
+
+          if (!userSnap.exists()) {
+            setLoading(false);
+            return;
+          }
+
+          const userData = userSnap.data();
+          const budgetId = userData.activeBudgetId;
+
+          if (!budgetId) {
+            setLoading(false);
+            return;
+          }
+
+          setActiveBudgetId(budgetId);
+
+          const budgetRef = doc(db, 'budgets', budgetId);
+          const budgetSnap = await getDoc(budgetRef);
+
+          if (budgetSnap.exists()) {
+            setActiveBudgetName(budgetSnap.data().name || 'Мій бюджет');
+          } else {
+            setActiveBudgetName('');
+          }
+
+          const q = query(
+            collection(db, 'transactions'),
+            where('budgetId', '==', budgetId),
+            orderBy('createdAt', 'desc')
+          );
+
+          unsubscribeTransactions = onSnapshot(
+            q,
+            (snapshot) => {
+              let inc = 0;
+              let exp = 0;
+
+              const list = snapshot.docs.map((docItem) => {
+                const data = docItem.data();
+
+                if (data.type === 'income') {
+                  inc += Number(data.amount) || 0;
+                } else {
+                  exp += Number(data.amount) || 0;
+                }
+
+                return {
+                  id: docItem.id,
+                  ...data,
+                };
+              });
+
+              setTransactions(list);
+
+              setTotals({
+                balance: inc - exp,
+                income: inc,
+                expense: exp,
+              });
+
+              setLoading(false);
+            },
+            (error) => {
+              console.log('Помилка завантаження транзакцій:', error);
+              setLoading(false);
+            }
+          );
+        } catch (error) {
+          console.log('Помилка завантаження бюджету:', error);
+          setLoading(false);
+        }
+      };
+
+      loadBudgetAndSubscribe();
+
+      return () => {
+        if (unsubscribeTransactions) {
+          unsubscribeTransactions();
+        }
+      };
+    }, [])
+  );
 
   useEffect(() => {
     let result = [...transactions];
@@ -180,6 +205,7 @@ export default function HomeScreen({ navigation }) {
 
     if (searchText.trim()) {
       const q = searchText.trim().toLowerCase();
+
       result = result.filter((item) =>
         String(item.title || '').toLowerCase().includes(q)
       );
@@ -246,6 +272,7 @@ export default function HomeScreen({ navigation }) {
       <LinearGradient colors={['#7C3AED', '#4F46E5']} style={styles.header}>
         <View style={styles.topRow}>
           <Text style={styles.headerLabel}>Мій баланс</Text>
+
           <TouchableOpacity onPress={handleLogout}>
             <Text style={styles.logoutText}>Вихід</Text>
           </TouchableOpacity>
@@ -273,9 +300,9 @@ export default function HomeScreen({ navigation }) {
           </View>
         </View>
 
-        {!!activeBudgetId && (
-          <Text style={styles.budgetHint}>Бюджет: {activeBudgetId}</Text>
-        )}
+        <Text style={styles.budgetHint}>
+          {activeBudgetName ? `Бюджет: ${activeBudgetName}` : 'Бюджет не вибрано'}
+        </Text>
       </LinearGradient>
 
       <View style={styles.searchWrap}>
@@ -377,7 +404,9 @@ export default function HomeScreen({ navigation }) {
             note={item.note}
             customDate={item.customDate}
             createdByEmail={item.createdByEmail}
-            onEdit={() => navigation.navigate('EditExpense', { transaction: item })}
+            onEdit={() =>
+              navigation.navigate('EditExpense', { transaction: item })
+            }
             onDelete={() => handleDelete(item.id)}
           />
         )}
@@ -476,8 +505,9 @@ const styles = StyleSheet.create({
   budgetHint: {
     marginTop: 10,
     textAlign: 'center',
-    color: 'rgba(255,255,255,0.75)',
-    fontSize: 11,
+    color: 'rgba(255,255,255,0.78)',
+    fontSize: 12,
+    fontWeight: '600',
   },
 
   searchWrap: {

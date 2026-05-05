@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useFocusEffect } from '@react-navigation/native';
 import { db, auth } from '../firebaseConfig';
 import {
   collection,
@@ -30,71 +31,84 @@ const CATEGORY_MAP = {
 export default function Statistics() {
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [activeBudgetId, setActiveBudgetId] = useState(null);
+  const [activeBudgetName, setActiveBudgetName] = useState('');
 
-  useEffect(() => {
-    let unsubscribeTransactions = null;
+  useFocusEffect(
+    React.useCallback(() => {
+      let unsubscribeTransactions = null;
 
-    const loadBudgetAndSubscribe = async () => {
-      try {
-        const currentUser = auth.currentUser;
+      const loadBudgetAndSubscribe = async () => {
+        try {
+          const currentUser = auth.currentUser;
 
-        if (!currentUser) {
-          setLoading(false);
-          return;
-        }
-
-        const userRef = doc(db, 'users', currentUser.uid);
-        const userSnap = await getDoc(userRef);
-
-        if (!userSnap.exists()) {
-          setLoading(false);
-          return;
-        }
-
-        const userData = userSnap.data();
-        const budgetId = userData.activeBudgetId;
-
-        if (!budgetId) {
-          setLoading(false);
-          return;
-        }
-
-        setActiveBudgetId(budgetId);
-
-        const q = query(
-          collection(db, 'transactions'),
-          where('budgetId', '==', budgetId)
-        );
-
-        unsubscribeTransactions = onSnapshot(
-          q,
-          (snapshot) => {
-            const list = snapshot.docs.map((docItem) => ({
-              id: docItem.id,
-              ...docItem.data(),
-            }));
-
-            setTransactions(list);
+          if (!currentUser) {
             setLoading(false);
-          },
-          (error) => {
-            console.log('Помилка завантаження статистики:', error);
-            setLoading(false);
+            return;
           }
-        );
-      } catch (error) {
-        console.log('Помилка завантаження бюджету для статистики:', error);
-        setLoading(false);
-      }
-    };
 
-    loadBudgetAndSubscribe();
+          setLoading(true);
 
-    return () => {
-      if (unsubscribeTransactions) unsubscribeTransactions();
-    };
-  }, []);
+          const userRef = doc(db, 'users', currentUser.uid);
+          const userSnap = await getDoc(userRef);
+
+          if (!userSnap.exists()) {
+            setLoading(false);
+            return;
+          }
+
+          const userData = userSnap.data();
+          const budgetId = userData.activeBudgetId;
+
+          if (!budgetId) {
+            setLoading(false);
+            return;
+          }
+
+          const budgetRef = doc(db, 'budgets', budgetId);
+          const budgetSnap = await getDoc(budgetRef);
+
+          if (budgetSnap.exists()) {
+            setActiveBudgetName(budgetSnap.data().name || 'Мій бюджет');
+          } else {
+            setActiveBudgetName('');
+          }
+
+          const q = query(
+            collection(db, 'transactions'),
+            where('budgetId', '==', budgetId)
+          );
+
+          unsubscribeTransactions = onSnapshot(
+            q,
+            (snapshot) => {
+              const list = snapshot.docs.map((docItem) => ({
+                id: docItem.id,
+                ...docItem.data(),
+              }));
+
+              setTransactions(list);
+              setLoading(false);
+            },
+            (error) => {
+              console.log('Помилка завантаження статистики:', error);
+              setLoading(false);
+            }
+          );
+        } catch (error) {
+          console.log('Помилка завантаження бюджету для статистики:', error);
+          setLoading(false);
+        }
+      };
+
+      loadBudgetAndSubscribe();
+
+      return () => {
+        if (unsubscribeTransactions) {
+          unsubscribeTransactions();
+        }
+      };
+    }, [])
+  );
 
   const stats = useMemo(() => {
     let income = 0;
@@ -179,6 +193,7 @@ export default function Statistics() {
           style={styles.balanceCard}
         >
           <Text style={styles.balanceLabel}>Поточний баланс</Text>
+
           <Text style={styles.balanceValue}>
             {stats.balance.toLocaleString()} ₴
           </Text>
@@ -201,9 +216,11 @@ export default function Statistics() {
             </View>
           </View>
 
-          {!!activeBudgetId && (
-            <Text style={styles.budgetHint}>Бюджет: {activeBudgetId}</Text>
-          )}
+          <Text style={styles.budgetHint}>
+            {activeBudgetName
+              ? `Бюджет: ${activeBudgetName}`
+              : 'Бюджет не вибрано'}
+          </Text>
         </LinearGradient>
 
         <View style={styles.cardsRow}>
@@ -231,7 +248,9 @@ export default function Statistics() {
           <View style={styles.smallCard}>
             <Text style={styles.smallCardTitle}>Найбільша категорія</Text>
             <Text style={styles.smallCardValueSmall}>
-              {stats.categoryList.length > 0 ? stats.categoryList[0].label : '—'}
+              {stats.categoryList.length > 0
+                ? stats.categoryList[0].label
+                : '—'}
             </Text>
           </View>
         </View>
@@ -242,7 +261,9 @@ export default function Statistics() {
           {stats.categoryList.length === 0 ? (
             <View style={styles.emptyBox}>
               <Text style={styles.emptyIcon}>📊</Text>
+
               <Text style={styles.emptyTitle}>Ще немає статистики</Text>
+
               <Text style={styles.emptyText}>
                 Додай кілька витрат, і тут з’явиться розподіл по категоріях
               </Text>
@@ -263,6 +284,7 @@ export default function Statistics() {
 
                     <View>
                       <Text style={styles.categoryName}>{item.label}</Text>
+
                       <Text style={styles.categoryAmount}>
                         {item.amount.toLocaleString()} ₴
                       </Text>
@@ -394,8 +416,9 @@ const styles = StyleSheet.create({
   budgetHint: {
     marginTop: 12,
     textAlign: 'center',
-    color: 'rgba(255,255,255,0.72)',
-    fontSize: 11,
+    color: 'rgba(255,255,255,0.78)',
+    fontSize: 12,
+    fontWeight: '600',
   },
 
   cardsRow: {
